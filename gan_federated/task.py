@@ -87,6 +87,7 @@ def train_cgan(generator, discriminator, train_loader,
     generator.train()
     discriminator.train()
     total_G, total_D = 0.0, 0.0
+    history = {"loss_G": [], "loss_D": []}
     for _ in range(epochs):
         for imgs, labels in train_loader:
             bs = imgs.size(0)
@@ -113,9 +114,13 @@ def train_cgan(generator, discriminator, train_loader,
 
             total_G += loss_G.item()
             total_D += loss_D.item()
+            history["loss_G"].append(loss_G.item())
+            history["loss_D"].append(loss_D.item())
 
     n_batches = len(train_loader) * epochs
-    return total_G / n_batches, total_D / n_batches
+    avg_G = total_G / n_batches
+    avg_D = total_D / n_batches
+    return avg_G, avg_D, history
 
 def evaluate_cgan(generator, discriminator, train_loader, adversarial_loss, device):
     generator.eval()
@@ -144,6 +149,9 @@ def set_parameters(net: nn.Module, parameters):
     params = zip(net.state_dict().keys(), parameters)
     sd = OrderedDict({k: torch.tensor(v) for k, v in params})
     net.load_state_dict(sd, strict=True)
+
+# Alias get_weights para compatibilidade com server_app.py
+get_weights = get_parameters
 
 from flwr.common import Metrics
 

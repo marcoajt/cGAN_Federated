@@ -1,9 +1,9 @@
 """gan-federated: A Flower / PyTorch cGAN client app."""
 
 import torch
+import json
 from flwr.client import NumPyClient, ClientApp
 from flwr.common import Context
-from collections import OrderedDict
 
 from gan_federated.task import (
     Generator,
@@ -25,12 +25,12 @@ class FlowerClient(NumPyClient):
         self.img_shape = (1, 28, 28)
         self.local_epochs = 1
 
-        # Data e modelos com particionamento dinâmico
+        # Load data partition, models
         self.train_loader = load_dataloader(client_id, num_partitions)
         self.generator = Generator(self.latent_dim, self.n_classes, self.img_shape).to(self.device)
         self.discriminator = Discriminator(self.n_classes, self.img_shape).to(self.device)
 
-        # Otimizadores e loss
+        # Optimizers and adversarial loss
         self.optimizer_G = torch.optim.Adam(
             self.generator.parameters(), lr=0.0002, betas=(0.5, 0.999)
         )
@@ -48,8 +48,10 @@ class FlowerClient(NumPyClient):
         set_parameters(self.discriminator, parameters[gen_len:])
 
     def fit(self, parameters, config):
+        """Local cGAN training, recording losses and saving history."""
         self.set_parameters(parameters, config)
-        loss_G, loss_D = train_cgan(
+        # Unpack generator loss, discriminator loss, and full history
+        loss_G, loss_D, history = train_cgan(
             generator=self.generator,
             discriminator=self.discriminator,
             train_loader=self.train_loader,
@@ -59,9 +61,16 @@ class FlowerClient(NumPyClient):
             epochs=self.local_epochs,
             device=self.device,
         )
+        # Client 0 salva modelo e histórico
         if self.client_id == 0:
             torch.save(self.generator.state_dict(), "generator_client0.pt")
-        return self.get_parameters(config), len(self.train_loader.dataset), {"loss_G": loss_G, "loss_D": loss_D}
+            with open("loss_history.json", "w") as f:
+                json.dump(history, f)
+        return (
+            self.get_parameters(config),
+            len(self.train_loader.dataset),
+            {"loss_G": loss_G, "loss_D": loss_D},
+        )
 
     def evaluate(self, parameters, config):
         self.set_parameters(parameters, config)
@@ -76,10 +85,9 @@ class FlowerClient(NumPyClient):
 
 
 def client_fn(context: Context):
-    # Recebe número de partições dinamicamente do contexto
     partition_id = int(context.node_config.get("partition-id", context.node_id))
     num_partitions = int(context.node_config.get("num-partitions", partition_id + 1))
     return FlowerClient(partition_id, num_partitions).to_client()
 
-# Iniciar o client app
+# Inicia o cliente
 app = ClientApp(client_fn)
