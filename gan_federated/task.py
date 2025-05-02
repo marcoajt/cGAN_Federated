@@ -1,4 +1,5 @@
-"""gan-federated: toda a lógica do cGAN + utilitários Flower."""
+# gan_federated/task.py
+"""gan-federated: toda a lógica do cGAN + utilitários Flower + particionamento Dirichlet."""
 
 from collections import OrderedDict
 import numpy as np
@@ -36,6 +37,7 @@ class TorchHFDataset(Dataset):
         label = sample["label"]
         return img, label
     
+
 def load_dataloader(client_id: int, num_clients: int, alpha: float = DEFAULT_ALPHA):
     """
     Carrega o DataLoader particionado via DirichletPartitioner.
@@ -45,7 +47,7 @@ def load_dataloader(client_id: int, num_clients: int, alpha: float = DEFAULT_ALP
         num_clients: total de clientes
         alpha: parâmetro Dirichlet (quanto menor, mais não-iid)
     """
-    # 1) Define o particionador Dirichlet por label
+    # 1) Define particionador Dirichlet por label
     dirichlet_partitioner = DirichletPartitioner(
         num_partitions=num_clients,
         alpha=alpha,
@@ -58,7 +60,7 @@ def load_dataloader(client_id: int, num_clients: int, alpha: float = DEFAULT_ALP
     )
     # 3) Carrega apenas a partição do client_id
     hf_train = fds.load_partition(partition_id=client_id, split="train")
-    # 4) Envolve num Dataset do PyTorch e cria o DataLoader
+    # 4) Envolve em Torch Dataset e cria DataLoader
     torch_ds = TorchHFDataset(hf_train)
     return DataLoader(torch_ds, batch_size=BATCH_SIZE, shuffle=True)
 
@@ -90,6 +92,7 @@ class Generator(nn.Module):
         img = self.model(gen_input)
         return img.view(img.size(0), *self.img_shape)
 
+
 class Discriminator(nn.Module):
     def __init__(self, n_classes=10, img_shape=(1, 28, 28)):
         super().__init__()
@@ -111,6 +114,7 @@ class Discriminator(nn.Module):
         img_flat = img.view(img.size(0), -1)
         return self.model(torch.cat((img_flat, label_embedding), dim=1))
 
+
 def train_cgan(generator, discriminator, train_loader,
                optimizer_G, optimizer_D, adversarial_loss,
                epochs, device):
@@ -126,6 +130,7 @@ def train_cgan(generator, discriminator, train_loader,
             real = imgs.to(device)
             lbls = labels.to(device)
 
+            # Discriminator
             optimizer_D.zero_grad()
             loss_real = adversarial_loss(discriminator(real, lbls), valid)
             z = torch.randn(bs, generator.latent_dim, device=device)
@@ -136,6 +141,7 @@ def train_cgan(generator, discriminator, train_loader,
             loss_D.backward()
             optimizer_D.step()
 
+            # Generator
             optimizer_G.zero_grad()
             output = discriminator(gen_imgs, gen_lbls)
             loss_G = adversarial_loss(output, valid)
@@ -151,6 +157,7 @@ def train_cgan(generator, discriminator, train_loader,
     avg_G = total_G / n_batches
     avg_D = total_D / n_batches
     return avg_G, avg_D, history
+
 
 def evaluate_cgan(generator, discriminator, train_loader, adversarial_loss, device):
     generator.eval()
@@ -172,18 +179,22 @@ def evaluate_cgan(generator, discriminator, train_loader, adversarial_loss, devi
             count += 1
     return {"loss": total / count if count > 0 else float("inf")}
 
+
 def get_parameters(net: nn.Module):
     return [val.cpu().numpy() for _, val in net.state_dict().items()]
+
 
 def set_parameters(net: nn.Module, parameters):
     params = zip(net.state_dict().keys(), parameters)
     sd = OrderedDict({k: torch.tensor(v) for k, v in params})
     net.load_state_dict(sd, strict=True)
 
-# Alias get_weights para compatibilidade com server_app.py
+
+# Alias para compatibilidade com o server_app.py antigo
 get_weights = get_parameters
 
 from flwr.common import Metrics
+
 
 def weighted_average_loss(metrics: list[tuple[int, Metrics]]):
     losses = [n * m["loss"] for n, m in metrics]

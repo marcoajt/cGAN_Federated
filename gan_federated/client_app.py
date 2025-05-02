@@ -1,3 +1,4 @@
+# client_app.py
 """gan-federated: A Flower / PyTorch cGAN client app."""
 
 import torch
@@ -30,7 +31,7 @@ class FlowerClient(NumPyClient):
         self.generator = Generator(self.latent_dim, self.n_classes, self.img_shape).to(self.device)
         self.discriminator = Discriminator(self.n_classes, self.img_shape).to(self.device)
 
-        # Optimizers and adversarial loss
+        # Optimizers e adversarial loss
         self.optimizer_G = torch.optim.Adam(
             self.generator.parameters(), lr=0.0002, betas=(0.5, 0.999)
         )
@@ -48,9 +49,8 @@ class FlowerClient(NumPyClient):
         set_parameters(self.discriminator, parameters[gen_len:])
 
     def fit(self, parameters, config):
-        """Local cGAN training, recording losses and saving history."""
+        """Treinamento local do cGAN, grava history e retorna losses."""
         self.set_parameters(parameters, config)
-        # Unpack generator loss, discriminator loss, and full history
         loss_G, loss_D, history = train_cgan(
             generator=self.generator,
             discriminator=self.discriminator,
@@ -61,7 +61,6 @@ class FlowerClient(NumPyClient):
             epochs=self.local_epochs,
             device=self.device,
         )
-        # Client 0 salva modelo e histórico
         if self.client_id == 0:
             torch.save(self.generator.state_dict(), "generator_client0.pt")
             with open("loss_history.json", "w") as f:
@@ -85,9 +84,9 @@ class FlowerClient(NumPyClient):
 
 
 def client_fn(context: Context):
-    partition_id = int(context.node_config.get("partition-id", context.node_id))
-    num_partitions = int(context.node_config.get("num-partitions", partition_id + 1))
-    return FlowerClient(partition_id, num_partitions).to_client()
+    pid = int(context.node_config.get("partition-id", context.node_id))
+    nparts = int(context.node_config.get("num-partitions", pid + 1))
+    return FlowerClient(pid, nparts).to_client()
 
 # Inicia o cliente
 app = ClientApp(client_fn)
