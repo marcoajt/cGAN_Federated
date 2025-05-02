@@ -25,7 +25,7 @@ serverapp = "gan_federated.server_app:app"
 clientapp = "gan_federated.client_app:app"
 
 [tool.flwr.app.config]
-num-server-rounds = 10
+num-server-rounds = 50
 fraction-fit = 0.5
 local-epochs = 1
 

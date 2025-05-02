@@ -4,11 +4,16 @@ from collections import OrderedDict
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms
+
+# Flower Datasets
+from flwr_datasets import FederatedDataset
+from flwr_datasets.partitioner import DirichletPartitioner
 
 # Hyperparâmetros de dados
 BATCH_SIZE = 64
+DEFAULT_ALPHA = 0.4  # controla o grau de heterogeneidade
 
 # Transformação padrão
 _default_transform = transforms.Compose([
@@ -16,22 +21,47 @@ _default_transform = transforms.Compose([
     transforms.Normalize([0.5], [0.5]),
 ])
 
-# Carrega MNIST completo
-_full_dataset = datasets.MNIST(
-    root="./data", train=True, download=True, transform=_default_transform
-)
 
-def get_partition(dataset, client_id, num_clients):
-    total = len(dataset)
-    indices = np.arange(total)
-    size = total // num_clients
-    start = client_id * size
-    end = start + size if client_id != num_clients - 1 else total
-    return torch.utils.data.Subset(dataset, indices[start:end])
+class TorchHFDataset(Dataset):
+    """Wrapper que converte um HuggingFace Dataset em torch.Dataset."""
+    def __init__(self, hf_dataset):
+        self.hf_dataset = hf_dataset
 
-def load_dataloader(client_id: int, num_clients: int):
-    subset = get_partition(_full_dataset, client_id, num_clients)
-    return DataLoader(subset, batch_size=BATCH_SIZE, shuffle=True)
+    def __len__(self):
+        return len(self.hf_dataset)
+
+    def __getitem__(self, idx):
+        sample = self.hf_dataset[idx]
+        img = _default_transform(sample["image"])
+        label = sample["label"]
+        return img, label
+    
+def load_dataloader(client_id: int, num_clients: int, alpha: float = DEFAULT_ALPHA):
+    """
+    Carrega o DataLoader particionado via DirichletPartitioner.
+
+    Args:
+        client_id: índice da partição (0 .. num_clients-1)
+        num_clients: total de clientes
+        alpha: parâmetro Dirichlet (quanto menor, mais não-iid)
+    """
+    # 1) Define o particionador Dirichlet por label
+    dirichlet_partitioner = DirichletPartitioner(
+        num_partitions=num_clients,
+        alpha=alpha,
+        partition_by="label",
+    )
+    # 2) Prepara o FederatedDataset para MNIST
+    fds = FederatedDataset(
+        dataset="ylecun/mnist",
+        partitioners={"train": dirichlet_partitioner},
+    )
+    # 3) Carrega apenas a partição do client_id
+    hf_train = fds.load_partition(partition_id=client_id, split="train")
+    # 4) Envolve num Dataset do PyTorch e cria o DataLoader
+    torch_ds = TorchHFDataset(hf_train)
+    return DataLoader(torch_ds, batch_size=BATCH_SIZE, shuffle=True)
+
 
 class Generator(nn.Module):
     def __init__(self, latent_dim=100, n_classes=10, img_shape=(1, 28, 28)):
