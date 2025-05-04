@@ -20,7 +20,7 @@ def main(json_path: str, output_path: str = None):
     plt.figure(figsize=(8, 5))
     plt.plot(x, loss_G, label="Generator Loss")
     plt.plot(x, loss_D, label="Discriminator Loss")
-    plt.xlabel("Batch / Época")
+    plt.xlabel("Época")
     plt.ylabel("Loss")
     plt.title("Histórico de Loss do Generator e Discriminator")
     plt.legend()
